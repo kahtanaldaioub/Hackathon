@@ -1,11 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
+import { JwtService } from '@nestjs/jwt';
+import { Types } from 'mongoose';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { vi } from 'vitest';
 import { AppModule } from './../src/app.module.js';
-import { User } from './../src/users/schemas/user.schema.js';
+import { AuthSession } from './../src/auth/schemas/auth.schema.js';
+import { User, UserRole } from './../src/users/schemas/user.schema.js';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -14,6 +17,10 @@ describe('AppController (e2e)', () => {
     vi.stubEnv('MONGODB_URI', 'mongodb://127.0.0.1:27017/nest-setup-test');
     vi.stubEnv('OBSERVE_APP_KEY', '');
     vi.stubEnv('OBSERVE_APP_SECRET', '');
+    vi.stubEnv(
+      'JWT_SECRET',
+      'test-only-secret-that-is-at-least-32-characters-long',
+    );
 
     const userModel = {
       findOne: vi.fn().mockReturnValue({
@@ -23,6 +30,7 @@ describe('AppController (e2e)', () => {
     const connection = {
       close: vi.fn().mockResolvedValue(undefined),
     };
+    const authSessionModel = {};
 
     const moduleBuilder = Test.createTestingModule({
       imports: [AppModule],
@@ -32,6 +40,9 @@ describe('AppController (e2e)', () => {
     moduleBuilder
       .overrideProvider(getModelToken(User.name))
       .useValue(userModel);
+    moduleBuilder
+      .overrideProvider(getModelToken(AuthSession.name))
+      .useValue(authSessionModel);
 
     const moduleFixture: TestingModule = await moduleBuilder.compile();
     app = moduleFixture.createNestApplication();
@@ -45,9 +56,25 @@ describe('AppController (e2e)', () => {
       .expect('Hello World!');
   });
 
+  it('requires an access token for user management', () => {
+    return request(app.getHttpServer()).get('/users').expect(401);
+  });
+
+  it('rejects regular users from user management', async () => {
+    const accessToken = await createAccessToken(UserRole.USER);
+
+    await request(app.getHttpServer())
+      .get('/users')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(403);
+  });
+
   it('rejects fields not declared in a DTO', async () => {
+    const accessToken = await createAccessToken(UserRole.ADMIN);
+
     const response = await request(app.getHttpServer())
       .post('/users')
+      .set('Authorization', `Bearer ${accessToken}`)
       .send({ unexpected: 'value' })
       .expect(400);
 
@@ -62,4 +89,21 @@ describe('AppController (e2e)', () => {
     await app.close();
     vi.unstubAllEnvs();
   });
+
+  async function createAccessToken(role: UserRole): Promise<string> {
+    return app.get(JwtService).signAsync(
+      {
+        sub: new Types.ObjectId().toString(),
+        email: 'admin@localhost',
+        role,
+        tokenType: 'access',
+      },
+      {
+        expiresIn: 900,
+        issuer: 'nest-setup',
+        audience: 'nest-setup-api',
+        algorithm: 'HS256',
+      },
+    );
+  }
 });
