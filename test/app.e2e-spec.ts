@@ -23,6 +23,19 @@ describe('AppController (e2e)', () => {
       .expect('Hello World!');
   });
 
+  it('rejects fields not declared in a DTO', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/users')
+      .send({ unexpected: 'value' })
+      .expect(400);
+
+    expect(response.body).toMatchObject({
+      statusCode: 400,
+      path: '/users',
+    });
+    expect(response.body.timestamp).toEqual(expect.any(String));
+  });
+
   afterEach(async () => {
     await app.close();
   });
