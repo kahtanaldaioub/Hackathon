@@ -1,17 +1,39 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
+import { vi } from 'vitest';
 import { AppModule } from './../src/app.module.js';
+import { User } from './../src/users/schemas/user.schema.js';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+    vi.stubEnv('MONGODB_URI', 'mongodb://127.0.0.1:27017/nest-setup-test');
+    vi.stubEnv('OBSERVE_APP_KEY', '');
+    vi.stubEnv('OBSERVE_APP_SECRET', '');
 
+    const userModel = {
+      findOne: vi.fn().mockReturnValue({
+        exec: vi.fn().mockResolvedValue({ role: 'admin' }),
+      }),
+    };
+    const connection = {
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const moduleBuilder = Test.createTestingModule({
+      imports: [AppModule],
+    });
+
+    moduleBuilder.overrideProvider(getConnectionToken()).useValue(connection);
+    moduleBuilder
+      .overrideProvider(getModelToken(User.name))
+      .useValue(userModel);
+
+    const moduleFixture: TestingModule = await moduleBuilder.compile();
     app = moduleFixture.createNestApplication();
     await app.init();
   });
@@ -38,5 +60,6 @@ describe('AppController (e2e)', () => {
 
   afterEach(async () => {
     await app.close();
+    vi.unstubAllEnvs();
   });
 });
