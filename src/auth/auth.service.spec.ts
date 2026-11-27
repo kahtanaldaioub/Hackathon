@@ -26,6 +26,10 @@ describe('AuthService', () => {
       exec: vi.fn().mockResolvedValue(user),
     };
     const usersModel = {
+      create: vi.fn().mockImplementation(async (values) => ({
+        ...user,
+        ...values,
+      })),
       findOne: vi.fn().mockReturnValue(userQuery),
       findById: vi.fn().mockReturnValue({
         exec: vi.fn().mockResolvedValue(user),
@@ -122,6 +126,37 @@ describe('AuthService', () => {
       }),
     );
     expect(result.user).toMatchObject({ email, role: UserRole.ADMIN });
+    await module.close();
+  });
+
+  it('registers a regular user and issues a token pair', async () => {
+    const { authService, module, sessionsModel, usersModel } =
+      await createService();
+
+    const result = await authService.register({
+      email: ' NewUser@example.com ',
+      password: 'a-secure-password',
+    });
+
+    expect(usersModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'newuser@example.com',
+        passwordHash: expect.any(String),
+        role: UserRole.USER,
+      }),
+    );
+    expect(result.user.role).toBe(UserRole.USER);
+    expect(sessionsModel.create).toHaveBeenCalledOnce();
+    await module.close();
+  });
+
+  it('rejects registration when the email is already in use', async () => {
+    const { authService, module, usersModel } = await createService();
+    usersModel.create.mockRejectedValue({ code: 11000 });
+
+    await expect(authService.register({ email, password })).rejects.toThrow(
+      'Email is already registered',
+    );
     await module.close();
   });
 

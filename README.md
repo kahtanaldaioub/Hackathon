@@ -57,6 +57,19 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## API
+
+All application routes use the `/api` prefix. `GET /api/health` checks the
+MongoDB connection and returns a service health status.
+
+Authentication routes are available under `/api/auth`: `POST /register`,
+`POST /login`, `POST /refresh`, and `POST /logout`. Registration creates a
+regular user account and returns access and refresh tokens.
+
+User management is available under `/api/users` and requires an administrator
+access token. It supports `POST` and `GET /api/users`, `GET` and `PATCH
+/api/users/:id`, and `DELETE /api/users/:id`.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

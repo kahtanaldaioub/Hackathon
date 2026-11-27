@@ -6,6 +6,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     instrument: ObserveInstrument,
   });
+  app.setGlobalPrefix('api');
   const config = app.get(ConfigService);
   await app.listen(config.getOrThrow<number>('app.port'));
 }

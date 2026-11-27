@@ -1,13 +1,22 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { JwtService } from '@nestjs/jwt';
 import { Types, type Model } from 'mongoose';
 import { LoginDto } from './dto/login.dto.js';
+import { RegisterDto } from './dto/register.dto.js';
 import { AuthSession } from './schemas/auth.schema.js';
-import { User, type UserDocument } from '../users/schemas/user.schema.js';
-import { verifyPassword } from './password-hasher.js';
+import {
+  User,
+  UserRole,
+  type UserDocument,
+} from '../users/schemas/user.schema.js';
+import { hashPassword, verifyPassword } from './password-hasher.js';
 import { RefreshTokenPayload, TokenPair } from './auth.types.js';
 
 const JWT_ISSUER = 'nest-setup';
@@ -23,6 +32,24 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
+  async register(credentials: RegisterDto): Promise<TokenPair> {
+    let user: UserDocument;
+    try {
+      user = await this.users.create({
+        email: credentials.email.trim().toLowerCase(),
+        passwordHash: await hashPassword(credentials.password),
+        role: UserRole.USER,
+      });
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        throw new ConflictException('Email is already registered');
+      }
+      throw error;
+    }
+
+    return this.createSession(user);
+  }
+
   async login(credentials: LoginDto): Promise<TokenPair> {
     const email = credentials.email.trim().toLowerCase();
     const user = await this.users
@@ -37,17 +64,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const sessionId = new Types.ObjectId();
-    const tokens = await this.createTokenPair(user, sessionId);
-
-    await this.sessions.create({
-      _id: sessionId,
-      userId: user._id,
-      refreshTokenHash: hashRefreshToken(tokens.refreshToken),
-      expiresAt: this.refreshTokenExpiry(),
-    });
-
-    return this.toTokenResponse(user, tokens);
+    return this.createSession(user);
   }
 
   async refresh(refreshToken: string): Promise<TokenPair> {
@@ -144,6 +161,20 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  private async createSession(user: UserDocument): Promise<TokenPair> {
+    const sessionId = new Types.ObjectId();
+    const tokens = await this.createTokenPair(user, sessionId);
+
+    await this.sessions.create({
+      _id: sessionId,
+      userId: user._id,
+      refreshTokenHash: hashRefreshToken(tokens.refreshToken),
+      expiresAt: this.refreshTokenExpiry(),
+    });
+
+    return this.toTokenResponse(user, tokens);
+  }
+
   private async verifyRefreshToken(
     token: string,
   ): Promise<RefreshTokenPayload> {
@@ -197,4 +228,13 @@ export class AuthService {
 
 function hashRefreshToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+function isDuplicateKeyError(error: unknown): error is { code: number } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 11000
+  );
 }

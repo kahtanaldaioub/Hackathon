@@ -28,6 +28,10 @@ describe('AppController (e2e)', () => {
       }),
     };
     const connection = {
+      readyState: 1,
+      db: {
+        command: vi.fn().mockResolvedValue({ ok: 1 }),
+      },
       close: vi.fn().mockResolvedValue(undefined),
     };
     const authSessionModel = {};
@@ -46,25 +50,35 @@ describe('AppController (e2e)', () => {
 
     const moduleFixture: TestingModule = await moduleBuilder.compile();
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api');
     await app.init();
   });
 
   it('/ (GET)', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/api')
       .expect(200)
       .expect('Hello World!');
   });
 
+  it('checks application and MongoDB health', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/health')
+      .expect(200);
+
+    expect(response.body.status).toBe('ok');
+    expect(response.body.details.database.status).toBe('up');
+  });
+
   it('requires an access token for user management', () => {
-    return request(app.getHttpServer()).get('/users').expect(401);
+    return request(app.getHttpServer()).get('/api/users').expect(401);
   });
 
   it('rejects regular users from user management', async () => {
     const accessToken = await createAccessToken(UserRole.USER);
 
     await request(app.getHttpServer())
-      .get('/users')
+      .get('/api/users')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(403);
   });
@@ -73,14 +87,14 @@ describe('AppController (e2e)', () => {
     const accessToken = await createAccessToken(UserRole.ADMIN);
 
     const response = await request(app.getHttpServer())
-      .post('/users')
+      .post('/api/users')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ unexpected: 'value' })
       .expect(400);
 
     expect(response.body).toMatchObject({
       statusCode: 400,
-      path: '/users',
+      path: '/api/users',
     });
     expect(response.body.timestamp).toEqual(expect.any(String));
   });
